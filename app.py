@@ -8,12 +8,13 @@ from transformers import AutoTokenizer, AutoModel, AutoModelForCausalLM
 from together import Together
 from typing import List, Dict, Tuple
 import re
+
 os.environ["TOGETHER_API_KEY"] = st.secrets["TOGETHER_API_KEY"]
 os.environ["HUGGINGFACE_HUB_TOKEN"] = st.secrets["HUGGINGFACE_HUB_TOKEN"]
 from huggingface_hub import login
 login(token=os.environ["HUGGINGFACE_HUB_TOKEN"])
 # notebook and the CSV are in 'clinical_RAG' folder
-file_path = 'content/discharge_notes_40_patients.csv'
+file_path = '/content/task_data.csv'
 df = pd.read_csv(file_path)
 df.head()
 # config
@@ -170,7 +171,7 @@ st.set_page_config(page_title="Clinical Chatbot", layout="centered")
 st.title("🩺 Clinical Chatbot Assistant")
 
 # Subject ID input (fixed or from dropdown in future)
-subject_id_to_search = st.number_input("Patient Subject ID", value=10001217)
+subject_id_to_search = st.number_input("Patient Subject ID", value=2)
 
 # Initialize session state
 if "messages" not in st.session_state:
@@ -180,7 +181,7 @@ if "messages" not in st.session_state:
 if "all_chunks" not in st.session_state:
     all_chunks = {}
     for index, row in df.iterrows():
-        subject_id = row['subject_id']
+        subject_id = row['patient_id']
         if subject_id == subject_id_to_search:
             note = row['text']
             charttime = row['charttime']
@@ -194,7 +195,7 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 # Chat input box
-user_query = st.chat_input("Enter your clinical question...")
+user_query = st.chat_input("Enter your clinical question...", value="How was physical therapy utilized during the hospital course?")
 
 if user_query:
     # Display user message
