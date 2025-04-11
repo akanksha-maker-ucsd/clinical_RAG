@@ -1,0 +1,33 @@
+# Ignore virtual environments
+venv/
+.env/
+.venv/
+
+# Ignore Python cache files
+__pycache__/
+*.py[cod]
+*.so
+
+# Ignore Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore dataset files (optional — keep only if you're downloading at runtime)
+*.csv
+*.tsv
+*.parquet
+*.zip
+
+# Ignore log files
+*.log
+logs/
+
+# Ignore secrets for local development
+.streamlit/secrets.toml
+
+# VSCode or JetBrains project settings (optional)
+.vscode/
+.idea/
+
+# Ignore OS-specific files
+.DS_Store
+Thumbs.db
