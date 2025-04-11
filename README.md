@@ -33,7 +33,8 @@ The project aims to support research and prototyping at the intersection of **cl
 clinical-chatbot/
 ├── app.py                  # Streamlit application
 ├── requirements.txt        # Python dependencies
-├── discharge_notes.csv     # Clinical dataset (example input)
+├── content/
+│   └── discharge_notes_40_patients.csv # Example Input
 ├── .streamlit/
 │   └── config.toml         # Optional UI configuration
 
