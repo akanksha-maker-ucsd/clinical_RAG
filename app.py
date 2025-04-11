@@ -20,9 +20,9 @@ from googleapiclient.http import MediaIoBaseDownload
 
 # Auth
 SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+credentials_info = json.loads(st.secrets["GDRIVE_CREDENTIALS"])
 credentials = service_account.Credentials.from_service_account_info(
-    st.secrets["GDRIVE_CREDENTIALS"],  # loaded from secrets.toml
-    scopes=SCOPES
+    credentials_info, scopes=SCOPES
 )
 
 # Build service
