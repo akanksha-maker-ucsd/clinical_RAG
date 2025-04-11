@@ -8,15 +8,40 @@ from transformers import AutoTokenizer, AutoModel, AutoModelForCausalLM
 from together import Together
 from typing import List, Dict, Tuple
 import re
-
+import gdown
 os.environ["TOGETHER_API_KEY"] = st.secrets["TOGETHER_API_KEY"]
 os.environ["HUGGINGFACE_HUB_TOKEN"] = st.secrets["HUGGINGFACE_HUB_TOKEN"]
 from huggingface_hub import login
 login(token=os.environ["HUGGINGFACE_HUB_TOKEN"])
-# notebook and the CSV are in 'clinical_RAG' folder
-file_path = '/content/task_data.csv'
-df = pd.read_csv(file_path)
-df.head()
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+import pandas as pd
+import io
+from googleapiclient.http import MediaIoBaseDownload
+
+# Auth
+SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+credentials = service_account.Credentials.from_service_account_info(
+    st.secrets["GDRIVE_CREDENTIALS"],  # loaded from secrets.toml
+    scopes=SCOPES
+)
+
+# Build service
+service = build('drive', 'v3', credentials=credentials)
+
+# File ID
+file_id = '1JJBW3fE8GZLVZQgPt1CS7HSYWeB2uqE8-p9xtIReIxU'
+
+# Download file
+request = service.files().get_media(fileId=file_id)
+fh = io.BytesIO()
+downloader = MediaIoBaseDownload(fh, request)
+done = False
+while not done:
+    _, done = downloader.next_chunk()
+
+fh.seek(0)
+df = pd.read_csv(fh)
 # config
 BIOBERT_MODEL = "emilyalsentzer/Bio_ClinicalBERT"
 EMBED_DIM = 768  # BioBERT output dim
