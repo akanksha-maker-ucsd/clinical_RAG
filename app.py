@@ -13,7 +13,7 @@ os.environ["HUGGINGFACE_HUB_TOKEN"] = st.secrets["HUGGINGFACE_HUB_TOKEN"]
 from huggingface_hub import login
 login(token=os.environ["HUGGINGFACE_HUB_TOKEN"])
 # notebook and the CSV are in 'clinical_RAG' folder
-file_path = '/content/discharge_notes_40_patients.csv'
+file_path = 'content/discharge_notes_40_patients.csv'
 df = pd.read_csv(file_path)
 df.head()
 # config
