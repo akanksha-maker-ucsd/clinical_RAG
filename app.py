@@ -8,10 +8,11 @@ from transformers import AutoTokenizer, AutoModel, AutoModelForCausalLM
 from together import Together
 from typing import List, Dict, Tuple
 import re
+import json
 os.environ["TOGETHER_API_KEY"] = st.secrets["TOGETHER_API_KEY"]
-os.environ["HUGGINGFACE_HUB_TOKEN"] = st.secrets["HUGGINGFACE_HUB_TOKEN"]
-from huggingface_hub import login
-login(token=os.environ["HUGGINGFACE_HUB_TOKEN"])
+# os.environ["HUGGINGFACE_HUB_TOKEN"] = st.secrets["HUGGINGFACE_HUB_TOKEN"]
+# from huggingface_hub import login
+# login(token=os.environ["HUGGINGFACE_HUB_TOKEN"])
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import pandas as pd
