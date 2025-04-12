@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import faiss
 import torch
+import types
 torch._classes = types.SimpleNamespace()
 sys.modules['torch._classes'] = torch._classes
 import pandas as pd
