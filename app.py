@@ -2,6 +2,8 @@ import streamlit as st
 import os
 import faiss
 import torch
+torch._classes = types.SimpleNamespace()
+sys.modules['torch._classes'] = torch._classes
 import pandas as pd
 import numpy as np
 from transformers import AutoTokenizer, AutoModel, AutoModelForCausalLM
