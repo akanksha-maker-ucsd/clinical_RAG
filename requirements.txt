@@ -20,7 +20,7 @@ rich<14.0.0          # Required by together
 
 # Together + Transformers + Torch
 together==1.5.5
-transformers==4.50.3
+transformers
 torch==2.6.0
 
 # Google API packages
