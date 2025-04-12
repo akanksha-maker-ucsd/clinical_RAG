@@ -14,14 +14,14 @@ opencv-contrib-python==4.11.0.86
 opencv-python-headless==4.11.0.86
 
 # Streamlit + dependencies
-streamlit==1.44.1
+streamlit
 protobuf<6           # Required by streamlit
 rich<14.0.0          # Required by together
 
 # Together + Transformers + Torch
-together==1.5.5
+together
 transformers
-torch==2.6.0
+torch
 
 # Google API packages
 google-api-python-client==2.120.0
