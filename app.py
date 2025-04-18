@@ -11,6 +11,7 @@ from typing import List, Tuple
 from transformers import AutoTokenizer, AutoModel
 from together import Together
 from google.cloud import bigquery
+from google.oauth2 import service_account
 # Configs 
 st.set_page_config(page_title="Clinical Chatbot", layout="centered")
 BIOBERT_MODEL = "emilyalsentzer/Bio_ClinicalBERT"
