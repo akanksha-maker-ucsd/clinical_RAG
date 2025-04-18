@@ -1,30 +1,14 @@
 beautifulsoup4==4.13.3
-faiss-cpu==1.10.0
-
-# Core libraries
+faiss_cpu==1.10.0
 huggingface_hub==0.30.1
-numpy==1.26.4  # Downgraded for compatibility (2.2.4 may break ops in some libs)
+numpy==2.2.4
+opencv_contrib_python==4.11.0.86
+opencv_python==4.11.0.86
+opencv_python_headless==4.11.0.86
 pandas==2.2.3
-python-magic==0.4.27
-requests==2.32.3
-
-# OpenCV
-opencv-python==4.11.0.86
-opencv-contrib-python==4.11.0.86
-opencv-python-headless==4.11.0.86
-
-# Streamlit + dependencies
-streamlit
-protobuf<6           # Required by streamlit
-rich<14.0.0          # Required by together
-
-# Together + Transformers + Torch
-together
-transformers
-torch
-
-# Google API packages
-google-api-python-client==2.120.0
-google-auth==2.38.0
-google-auth-oauthlib==1.2.0
-google-auth-httplib2==0.2.0
+python_magic==0.4.27
+Requests==2.32.3
+streamlit==1.44.1
+together==1.5.5
+torch==2.6.0
+transformers==4.50.3
