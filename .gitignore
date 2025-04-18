@@ -25,3 +25,6 @@ logs/
 # Ignore OS-specific files
 .DS_Store
 Thumbs.db
+
+#csv file isn't published publicly 
+data/
