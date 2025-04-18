@@ -12,6 +12,7 @@ from transformers import AutoTokenizer, AutoModel
 from together import Together
 from google.cloud import bigquery
 # Configs 
+st.set_page_config(page_title="Clinical Chatbot", layout="centered")
 BIOBERT_MODEL = "emilyalsentzer/Bio_ClinicalBERT"
 EMBED_DIM = 768
 MODEL_NAME = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
@@ -132,8 +133,7 @@ Answer:"""
     )
     return response.choices[0].message.content
 
-# Streamlit app
-st.set_page_config(page_title="Clinical Chatbot", layout="centered")
+# steamlit app layout 
 st.title("🩺 Clinical Chatbot Assistant")
 subject_id_to_search = st.number_input("Patient Subject ID", value=10001217)
 df = query_discharge_notes(subject_id_to_search)
