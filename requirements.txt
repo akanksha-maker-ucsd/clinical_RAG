@@ -12,3 +12,6 @@ streamlit==1.44.1
 together==1.5.5
 torch==2.6.0
 transformers==4.50.3
+google-api-python-client 
+google-auth-httplib2 
+google-auth-oauthlib
