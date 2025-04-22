@@ -347,6 +347,12 @@ if user_query:
         )
         st.write("Retrieved FAISS Chunks:")
         st.write(chunks)
+        if len(chunks) == 0:
+            st.error("No relevant chunks found.")
+            st.session_state.messages.append({"role": "assistant", "content": "No relevant chunks found."})
+            with st.chat_message("assistant"):
+                st.markdown("No relevant chunks found.")
+            st.stop()
         response = generate_response_from_chunks(user_query, chunks)
     st.session_state.messages.append({"role": "assistant", "content": response})
     with st.chat_message("assistant"):
