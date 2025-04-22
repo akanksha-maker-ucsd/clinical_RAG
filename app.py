@@ -236,7 +236,7 @@ def extract_recent_chief_complaint_and_hpi(note_text: str) -> str:
 
     return sections or "Chief Complaint and HPI not found."
 
-chief_complaint_html = extract_recent_chief_complaint_and_hpi(most_recent_note["text"])
+chief_complaint_html = most_recent_note["text"]
 
 # Prepare HTML for older notes (excluding the most recent one)
 previous_notes_html = "<div class='discharge-notes-box'>"
