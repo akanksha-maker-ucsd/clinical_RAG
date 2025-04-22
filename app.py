@@ -178,7 +178,6 @@ def search_chunks_with_faiss(all_chunks, subject_id, query, top_k=30):
         return []
     texts = [text for section, text, date in chunks]
     embeddings = [get_embedding(t) for t in texts]
-    print("DEBUGGGG: "+ embeddings[0])
     index = build_faiss_index(embeddings)
     query_emb = get_embedding(query)
     D, I = index.search(query_emb.reshape(1, -1), top_k)
