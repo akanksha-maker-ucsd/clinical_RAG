@@ -14,10 +14,16 @@ from google.cloud import bigquery
 from google.oauth2 import service_account
 import streamlit.components.v1 as components
 import markdown
+from datetime import datetime
 # Configs 
 st.set_page_config(page_title="Clinical Chatbot", layout="centered")
 st.markdown("""
     <style>
+        body {
+            background-color: #121212;
+            color: #f1f1f1;
+        }
+
         textarea {
             background-color: #1e1e1e !important;
             color: #f1f1f1 !important;
@@ -27,15 +33,15 @@ st.markdown("""
         }
 
         .discharge-notes-box {
-            height: 320px;
+            height: 340px;
             overflow-y: auto;
             padding: 16px;
             border-radius: 10px;
-            background-color: #282828;
+            background-color: #1e1e1e;
             color: #f1f1f1;
             font-family: 'Courier New', monospace;
             font-size: 14px;
-            border: 1px solid #666;
+            border: 1px solid #444;
         }
 
         .note-entry {
@@ -43,17 +49,34 @@ st.markdown("""
         }
 
         .note-entry hr {
-            border-color: #666;
+            border-color: #555;
         }
 
         summary {
             cursor: pointer;
             font-size: 15px;
             padding: 4px 0;
+            color: #f1f1f1;
+        }
+
+        details {
+            color: #f1f1f1;
+            background: none;
+            padding-bottom: 6px;
         }
 
         details[open] summary {
             font-weight: bold;
+        }
+
+        p {
+            margin: 0;
+            padding: 4px 0;
+            color: #f1f1f1;
+        }
+
+        strong {
+            color: #ffffff;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -182,11 +205,20 @@ Answer:"""
 
 
 def format_note_as_sections(note_text: str) -> str:
-    section_titles = [
-        "Chief Complaint:", "History of Present Illness:", "Major Surgical or Invasive Procedure:",
-        "Past Medical History:", "Physical Exam:", "Discharge Diagnosis:", "Discharge Medications:",
-        "Discharge Disposition:", "Discharge Instructions:", "Followup Instructions:"
-    ]
+    section_icons = {
+        "Chief Complaint:": "🩺",
+        "History of Present Illness:": "📜",
+        "Major Surgical or Invasive Procedure:": "🛠️",
+        "Past Medical History:": "📚",
+        "Physical Exam:": "🧍",
+        "Discharge Diagnosis:": "🔍",
+        "Discharge Medications:": "💊",
+        "Discharge Disposition:": "🏠",
+        "Discharge Instructions:": "📋",
+        "Followup Instructions:": "📅"
+    }
+
+    section_titles = list(section_icons.keys())
     pattern = re.compile(rf"({'|'.join(map(re.escape, section_titles))})", re.MULTILINE)
 
     matches = list(pattern.finditer(note_text))
@@ -194,13 +226,14 @@ def format_note_as_sections(note_text: str) -> str:
 
     for i in range(len(matches)):
         title = matches[i].group(1)
+        icon = section_icons.get(title, "📝")
         start = matches[i].end()
         end = matches[i+1].start() if i+1 < len(matches) else len(note_text)
         body = note_text[start:end].strip().replace("\n", "<br>")
         formatted += f"""
-        <details style='color: #f1f1f1;'>
-            <summary style='color: #f1f1f1;'><strong>{title}</strong></summary>
-            <p style='color: #f1f1f1; margin-top: 4px;'>{body}</p>
+        <details open>
+            <summary><strong>{icon} {title}</strong></summary>
+            <p>{body}</p>
         </details><br>
         """
 
@@ -242,12 +275,18 @@ chief_complaint_html = extract_recent_chief_complaint_and_hpi(most_recent_note["
 previous_notes_html = "<div class='discharge-notes-box'>"
 for i in range(1, len(df_sorted)):
     note = df_sorted.iloc[i]
-    charttime = note["charttime"]
+    
+    charttime = pd.to_datetime(note["charttime"])
+    date_str = charttime.strftime("%b %d, %Y")
+
     text = format_note_as_sections(note["text"][:2000])
     previous_notes_html += f"""
     <div class='note-entry'>
-        <strong>{charttime}</strong><br>
-        <div>{text}...</div>
+        <div style='background-color: #2a2a2a; color: #f1f1f1; padding: 6px 12px; border-radius: 6px;
+                    display: inline-block; font-size: 13px; margin-bottom: 6px; box-shadow: 0 0 4px rgba(0,0,0,0.3);'>
+            📅 {date_str}
+        </div>
+        <div>{text}</div>
         <hr>
     </div>
     """
@@ -263,7 +302,7 @@ with left:
     st.markdown("""
         <div style='display: flex; align-items: center; margin-bottom: 1rem;'>
             <img src='https://cdn-icons-png.flaticon.com/512/2922/2922510.png' width='60' style='border-radius: 50%; margin-right: 10px;'/>
-            <div style='background: #444; color: white; padding: 10px 14px; border-radius: 16px; font-size: 14px; max-width: 320px;'>
+            <div style='background: #3a3a3a; color: white; padding: 10px 16px; border-radius: 16px; font-size: 14px; max-width: 320px; box-shadow: 0 0 6px rgba(0,0,0,0.2);'>
                 “I’m here because of these symptoms...”
             </div>
         </div>
