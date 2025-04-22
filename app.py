@@ -342,6 +342,8 @@ if user_query:
         chunks = search_chunks_with_faiss(
             st.session_state.all_chunks, subject_id_to_search, user_query
         )
+        st.write("Retrieved FAISS Chunks:")
+        st.write(chunks)
         response = generate_response_from_chunks(user_query, chunks)
     st.session_state.messages.append({"role": "assistant", "content": response})
     with st.chat_message("assistant"):
