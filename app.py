@@ -99,7 +99,7 @@ tokenizer_biobert, biobert = load_biobert()
 
 @st.cache_resource
 def get_bigquery_client():
-    credentials_info = st.secrets["BIGQUERY_CREDENTIALS"]  # Add to .streamlit/secrets.toml
+    credentials_info = st.secrets["BIGQUERY_CREDENTIALS"]
     credentials = service_account.Credentials.from_service_account_info(credentials_info)
     return bigquery.Client(credentials=credentials, project=credentials.project_id)
 
@@ -167,6 +167,7 @@ def search_chunks_with_faiss(all_chunks, subject_id, query, top_k=30):
         return []
     texts = [text for section, text, date in chunks]
     embeddings = [get_embedding(t) for t in texts]
+    print(embeddings[0])
     index = build_faiss_index(embeddings)
     query_emb = get_embedding(query)
     D, I = index.search(query_emb.reshape(1, -1), top_k)
