@@ -193,20 +193,22 @@ client = Together(api_key=os.environ["TOGETHER_API_KEY"])
 
 def generate_response_from_chunks(query: str, retrieved_chunks: List[tuple]) -> str:
     context = "\n".join([f"[{section} {date}] {text.strip()}" for text, section, date, score in retrieved_chunks])
-    prompt = f"""You are a clinical assistant helping summarize a patient's medical history for a physician during clinical assessment.
+    prompt = f"""
+    You are a clinical assistant reviewing the following clinical notes and answering specific medical questions.
 
+    Patient Notes:
+    {context}
 
-Patient Timeline:
-{context}
+    Question:
+    {query}
 
-Query: \"{query}\"
+    Instructions:
+    - Provide a direct yes/no answer if possible.
+    - Cite specific dates and symptoms mentioned.
+    - If evidence is mixed or absent, explain briefly.
+    - Keep the tone clinical and concise.
 
-Instructions:
-- Extract only relevant and factual information
-- Associate each finding with its date
-- Present in a clear, concise clinical manner
-
-Answer:"""
+    Answer:"""
     response = client.chat.completions.create(
         model=MODEL_NAME,
         messages=[{"role": "user", "content": prompt}],
@@ -242,9 +244,9 @@ def format_note_as_sections(note_text: str) -> str:
         end = matches[i+1].start() if i+1 < len(matches) else len(note_text)
         body = note_text[start:end].strip().replace("\n", "<br>")
         formatted += f"""
-        <details open>
-            <summary><strong>{icon} {title}</strong></summary>
-            <p>{body}</p>
+        <details open style='color: #f1f1f1;'>
+            <summary style='color: #f1f1f1;'><strong>{icon} {title}</strong></summary>
+            <p style='color: #f1f1f1; font-family: monospace; font-size: 13px;'>{body}</p>
         </details><br>
         """
 
@@ -264,23 +266,30 @@ recent_chunks = chunk_text(most_recent_note["text"], most_recent_note["charttime
 
 
 def extract_recent_chief_complaint_and_hpi(note_text: str) -> str:
-    section_titles = [
-        "Chief Complaint:", "History of Present Illness:"
-    ]
+    section_icons = {
+        "Chief Complaint:": "🩺",
+        "History of Present Illness:": "📜"
+    }
+
+    section_titles = list(section_icons.keys())
     pattern = re.compile(rf"({'|'.join(map(re.escape, section_titles))})", re.MULTILINE)
     matches = list(pattern.finditer(note_text))
 
     sections = ""
     for i in range(len(matches)):
         title = matches[i].group(1)
+        icon = section_icons.get(title, "📝")
         start = matches[i].end()
         end = matches[i + 1].start() if i + 1 < len(matches) else len(note_text)
         body = note_text[start:end].strip().replace("\n", "<br>")
-        sections += f"<details open><summary><strong>{title}</strong></summary><p style='margin-top: 4px;'>{body}</p></details><br>"
+        sections += f"""
+        <details open style='color: #f1f1f1;'>
+            <summary style='color: #f1f1f1;'><strong>{icon} {title}</strong></summary>
+            <p style='color: #f1f1f1; font-family: monospace; font-size: 13px;'>{body}</p>
+        </details><br>
+        """
 
-    return sections or "Chief Complaint and HPI not found."
-
-chief_complaint_html = extract_recent_chief_complaint_and_hpi(most_recent_note["text"])
+    return sections or "<span style='color: #f1f1f1;'>Chief Complaint and HPI not found.</span>"
 
 # Prepare HTML for older notes (excluding the most recent one)
 previous_notes_html = "<div class='discharge-notes-box'>"
@@ -293,9 +302,10 @@ for i in range(1, len(df_sorted)):
     text = format_note_as_sections(note["text"][:2000])
     previous_notes_html += f"""
     <div class='note-entry'>
-        <div style='background-color: #2a2a2a; color: #f1f1f1; padding: 6px 12px; border-radius: 6px;
-                    display: inline-block; font-size: 13px; margin-bottom: 6px; box-shadow: 0 0 4px rgba(0,0,0,0.3);'>
-            📅 {date_str}
+        <div style='background: linear-gradient(145deg, #2e2e2e, #1c1c1c); color: #f1f1f1; padding: 6px 12px; 
+     border-radius: 6px; font-size: 13px; display: inline-block; margin-bottom: 6px;
+     box-shadow: inset 1px 1px 2px #333, inset -1px -1px 2px #111;'>
+        📅 {date_str}
         </div>
         <div>{text}</div>
         <hr>
