@@ -139,7 +139,40 @@ def generate_response(query, chunks):
     Answer:"""
     resp = client.chat.completions.create(model=MODEL_NAME, messages=[{"role":"user","content":prompt}])
     return resp.choices[0].message.content
+def format_note_as_sections(note_text: str) -> str:
+    section_icons = {
+        "Chief Complaint:": "🩺",
+        "History of Present Illness:": "📜",
+        "Major Surgical or Invasive Procedure:": "🛠️",
+        "Past Medical History:": "📚",
+        "Physical Exam:": "🧍",
+        "Discharge Diagnosis:": "🔍",
+        "Discharge Medications:": "💊",
+        "Discharge Disposition:": "🏠",
+        "Discharge Instructions:": "📋",
+        "Followup Instructions:": "📅"
+    }
 
+    section_titles = list(section_icons.keys())
+    pattern = re.compile(rf"({'|'.join(map(re.escape, section_titles))})", re.MULTILINE)
+
+    matches = list(pattern.finditer(note_text))
+    formatted = ""
+
+    for i in range(len(matches)):
+        title = matches[i].group(1)
+        icon = section_icons.get(title, "📝")
+        start = matches[i].end()
+        end = matches[i+1].start() if i+1 < len(matches) else len(note_text)
+        body = note_text[start:end].strip().replace("\n", "<br>")
+        formatted += f"""
+        <details open>
+            <summary><strong>{icon} {title}</strong></summary>
+            <p>{body}</p>
+        </details><br>
+        """
+
+    return formatted
 # --- UI ---
 st.title("🩺 Clinical Chatbot Assistant")
 subject_id = st.number_input("Patient Subject ID", min_value=0, value=10001338)
@@ -167,17 +200,12 @@ with tab1:
 
 with tab2:
     st.subheader("Past Discharge Notes")
-    for note in notes_df.iloc[1:4].itertuples():
+    for note in notes_df.iloc[1:].itertuples():
+        note_formatted = format_note_as_sections(note.text)
         date = note.charttime.strftime('%b %d, %Y')
         with st.expander(f"📅 {date}", expanded=False):
-            sec_map = {}
-            for sec, txt, _ in chunk_text(note.text, note.charttime):
-                if sec not in sec_map:
-                    sec_map[sec] = []
-                sec_map[sec].append(txt.strip())
-            for sec, texts in sec_map.items():
-                combined = ' '.join(texts)
-                st.markdown(f"**{sec}**\n{combined}")
+            st.markdown(f"{note_formatted}", unsafe_allow_html=True)
+            
 
 # Chat
 if 'messages' not in st.session_state: st.session_state.messages = []
