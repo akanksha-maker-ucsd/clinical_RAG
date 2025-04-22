@@ -80,7 +80,7 @@ st.markdown("""
         }
     </style>
 """, unsafe_allow_html=True)
-BIOBERT_MODEL = "dmis-lab/biobert-base-cased-v1.1"
+BIOBERT_MODEL = "emilyalsentzer/Bio_ClinicalBERT"
 EMBED_DIM = 768
 MODEL_NAME = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 SCORE_THRESHOLD = 50
@@ -151,7 +151,13 @@ def chunk_text(note: str, charttime, max_chars: int = 500) -> List[Tuple[str, st
 
 @st.cache_data
 def get_embedding(text: str) -> np.ndarray:
-    inputs = tokenizer_biobert(text, return_tensors="pt", truncation=True, padding=True)
+    inputs = inputs = tokenizer_biobert(
+    text,
+    return_tensors="pt",
+    truncation=True,
+    padding=True,
+    max_length=512 
+)
     with torch.no_grad():
         outputs = biobert(**inputs)
     attention_mask = inputs['attention_mask']
