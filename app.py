@@ -37,14 +37,14 @@ os.environ["TOGETHER_API_KEY"] = st.secrets["TOGETHER_API_KEY"]
 
 @st.cache_resource
 def load_biobert():
-    return (AutoTokenizer.from_pretrained(BIOBERT_MODEL),
-            AutoModel.from_pretrained(BIOBERT_MODEL))
+    return AutoTokenizer.from_pretrained(BIOBERT_MODEL), AutoModel.from_pretrained(BIOBERT_MODEL)
+
 tokenizer_biobert, biobert = load_biobert()
 
 @st.cache_resource
 def get_bigquery_client():
-    cred_info = st.secrets["BIGQUERY_CREDENTIALS"]
-    creds = service_account.Credentials.from_service_account_info(cred_info)
+    creds_info = st.secrets["BIGQUERY_CREDENTIALS"]
+    creds = service_account.Credentials.from_service_account_info(creds_info)
     return bigquery.Client(credentials=creds, project=creds.project_id)
 
 @st.cache_data(ttl=3600)
@@ -56,31 +56,36 @@ def query_discharge_notes(subject_id: int) -> pd.DataFrame:
       WHERE subject_id = {subject_id}
       ORDER BY charttime DESC
     """
-    return client.query(sql).to_dataframe()
+    df = client.query(sql).to_dataframe()
+    df['charttime'] = pd.to_datetime(df['charttime'])
+    return df
 
 # --- Utilities ---
 @st.cache_data
-def chunk_text(note: str, charttime, max_chars: int = 500) -> List[Tuple[str,str,str]]:
-    headers = ["Chief Complaint:", "History of Present Illness:", "Discharge Notes:"]
+def chunk_text(note: str, charttime, max_chars: int = 500) -> List[Tuple[str, str, str]]:
+    headers = [
+        "Chief Complaint:", "History of Present Illness:",
+        "Major Surgical or Invasive Procedure:"  
+    ]
     pattern = re.compile(rf"^({'|'.join(map(re.escape, headers))})", re.MULTILINE)
     matches = list(pattern.finditer(note))
     chunks = []
-    for i in range(len(matches)):
-        start = matches[i].end()
+    for i, m in enumerate(matches):
+        start = m.end()
         end = matches[i+1].start() if i+1 < len(matches) else len(note)
-        section = matches[i].group(1)
+        section = m.group(1)
         content = note[start:end].strip().replace("\n", " ")
-        # truncate at sentence boundaries
-        snippets = re.split(r'(?<=[.?!])\s+', content)
-        curr = ""
-        for sent in snippets:
-            if len(curr)+len(sent) <= max_chars:
-                curr += sent + ' '
+        # split on sentences
+        sentences = re.split(r'(?<=[.?!])\s+', content)
+        buffer = ""
+        for sent in sentences:
+            if len(buffer) + len(sent) <= max_chars:
+                buffer += sent + ' '
             else:
-                chunks.append((section, curr.strip(), charttime))
-                curr = sent + ' '
-        if curr:
-            chunks.append((section, curr.strip(), charttime))
+                chunks.append((section, buffer.strip(), charttime))
+                buffer = sent + ' '
+        if buffer:
+            chunks.append((section, buffer.strip(), charttime))
     return chunks
 
 @st.cache_data
@@ -93,27 +98,29 @@ def get_embedding(text: str) -> np.ndarray:
 
 def build_faiss_index(embeds: List[np.ndarray]):
     idx = faiss.IndexFlatL2(embeds[0].shape[0])
-    idx.add(np.vstack(embeds)); return idx
+    idx.add(np.vstack(embeds))
+    return idx
 
 def search_chunks_with_faiss(all_chunks, sid, query):
     chunks = all_chunks.get(sid, [])
-    if not chunks: return []
+    if not chunks:
+        return []
     texts = [t for _, t, _ in chunks]
     embeds = [get_embedding(t) for t in texts]
     idx = build_faiss_index(embeds)
     q_emb = get_embedding(query)
-    D, I = idx.search(q_emb.reshape(1,-1), MAX_CHUNKS)
-    out = []
+    D, I = idx.search(q_emb.reshape(1, -1), MAX_CHUNKS)
+    results = []
     for i, d in zip(I[0], D[0]):
         if d <= SCORE_THRESHOLD:
-            sec, txt, dt = chunks[i]
-            out.append((sec, txt, dt, d))
-    return out
+            results.append((*chunks[i], d))
+    return results
 
 client = Together(api_key=os.environ["TOGETHER_API_KEY"])
 def generate_response(query, chunks):
-    if not chunks: return "No relevant information found."
-    ctx = "\n".join([f"[{sec} {dt}] {txt}" for sec, txt, dt, _ in chunks])
+    if not chunks:
+        return "No relevant information found."
+    ctx = "\n".join([f"[{sec} {dt.strftime('%Y-%m-%d')}] {txt}" for sec, txt, dt, _ in chunks])
     prompt = f"""
     You are a clinical assistant reviewing the following clinical notes and answering specific medical questions.
 
@@ -130,72 +137,50 @@ def generate_response(query, chunks):
     - Keep the tone clinical and concise.
 
     Answer:"""
-    return client.chat.completions.create(model=MODEL_NAME, messages=[{"role":"user","content":prompt}]).choices[0].message.content
+    resp = client.chat.completions.create(model=MODEL_NAME, messages=[{"role":"user","content":prompt}])
+    return resp.choices[0].message.content
 
 # --- UI ---
 st.title("🩺 Clinical Chatbot Assistant")
 subject_id = st.number_input("Patient Subject ID", min_value=0, value=10001338)
 
-# Query and process notes
 notes_df = query_discharge_notes(subject_id)
-notes_df['charttime'] = pd.to_datetime(notes_df['charttime'])
-
 if "all_chunks" not in st.session_state:
     all_chunks = {}
     for _, r in notes_df.iterrows():
         sid, txt, dt = r['subject_id'], r['text'], r['charttime']
-        c = chunk_text(txt, dt)
-        all_chunks.setdefault(sid, []).extend(c)
+        all_chunks.setdefault(sid, []).extend(chunk_text(txt, dt))
     st.session_state.all_chunks = all_chunks
 
-# Tabs for UX
+# Tabs
 tab1, tab2 = st.tabs(["👤 Current Visit", "📚 Discharge Notes"])
 
 with tab1:
     st.subheader("Current Visit Overview")
     row = notes_df.iloc[0]
-    st.markdown(f'''**Date:** {row['charttime'].strftime('%b %d, %Y')}  
-**Chief Complaint:** {next((t for s,t,d in chunk_text(row['text'], row['charttime']) if 'Chief Complaint' in s), 'N/A')}  ''')
+    st.markdown(f"**Date:** {row['charttime'].strftime('%b %d, %Y')}  \
+**Chief Complaint:** {next((t for s,t,d in chunk_text(row['text'], row['charttime']) if 'Chief Complaint' in s), 'N/A')}  ")
+    st.markdown(f"**Procedure:** {next((t for s,t,d in chunk_text(row['text'], row['charttime']) if 'Major Surgical or Invasive Procedure' in s), 'None')}  ")
     hpi = next((t for s,t,d in chunk_text(row['text'], row['charttime']) if 'History of Present Illness' in s), '')
-    display = hpi[:500] + '...' if len(hpi)>500 else hpi
-    st.markdown(f"**HPI:** {display}")
-
-def format_note_as_sections(note: dict) -> str:
-    icons = {
-        "Chief Complaint:": "🩺",
-        "History of Present Illness:": "📜"
-    }
-    # Get all chunks for this note
-    chunks = chunk_text(note["text"], note["charttime"])
-    # Group text by section
-    section_map: dict[str, list[str]] = {}
-    for sec, txt, _ in chunks:
-        if sec in icons:
-            section_map.setdefault(sec, []).append(txt.strip())
-
-    parts = []
-    # Preserve the icon order
-    for sec, icon in icons.items():
-        texts = section_map.get(sec)
-        if not texts:
-            continue
-        # Join all chunks of that section
-        full_text = " ".join(texts)
-        parts.append(f"""{icon} **{sec}**
-
-{full_text}""")
-
-    return "\n\n".join(parts)
+    hpi_display = (hpi[:300] + '...') if len(hpi) > 300 else hpi
+    st.markdown(f"**HPI:** {hpi_display}")
 
 with tab2:
     st.subheader("Past Discharge Notes")
     for note in notes_df.iloc[1:4].itertuples():
-        date = note.charttime.strftime("%b %d, %Y")
+        date = note.charttime.strftime('%b %d, %Y')
         with st.expander(f"📅 {date}", expanded=False):
-            st.markdown(format_note_as_sections(note._asdict()), unsafe_allow_html=True)
+            sec_map = {}
+            for sec, txt, _ in chunk_text(note.text, note.charttime):
+                if sec not in sec_map:
+                    sec_map[sec] = []
+                sec_map[sec].append(txt.strip())
+            for sec, texts in sec_map.items():
+                combined = ' '.join(texts)
+                st.markdown(f"**{sec}**\n{combined}")
 
-# Chat interface
-if 'messages' not in st.session_state: st.session_state.messages=[]
+# Chat
+if 'messages' not in st.session_state: st.session_state.messages = []
 for m in st.session_state.messages:
     with st.chat_message(m['role']): st.markdown(m['content'])
 query = st.chat_input("Ask a clinical question...")
@@ -203,6 +188,7 @@ if query:
     st.session_state.messages.append({'role':'user','content':query})
     with st.chat_message('user'): st.markdown(query)
     with st.spinner('Generating answer...'):
-        resp = generate_response(query, search_chunks_with_faiss(st.session_state.all_chunks, subject_id, query))
-    st.session_state.messages.append({'role':'assistant','content':resp})
-    with st.chat_message('assistant'): st.markdown(resp)
+        chunks = search_chunks_with_faiss(st.session_state.all_chunks, subject_id, query)
+        answer = generate_response(query, chunks)
+    st.session_state.messages.append({'role':'assistant','content':answer})
+    with st.chat_message('assistant'): st.markdown(answer)
