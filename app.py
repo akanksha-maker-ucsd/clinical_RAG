@@ -1,4 +1,3 @@
-## 1. Installation and Setup
 import streamlit as st
 import os
 import faiss
@@ -14,159 +13,112 @@ from google.oauth2 import service_account
 import streamlit.components.v1 as components
 from datetime import datetime
 
-# Configs 
+# --- Configs & Styling ---
 st.set_page_config(page_title="Clinical Chatbot", layout="centered")
 st.markdown("""
-    <style>
-        body {
-            background-color: #121212;
-            color: #f1f1f1;
-        }
-        textarea {
-            background-color: #1e1e1e !important;
-            color: #f1f1f1 !important;
-            font-family: 'Courier New', monospace;
-            font-size: 14px;
-            border-radius: 6px;
-        }
-        .discharge-notes-box {
-            height: 240px;
-            overflow-y: auto;
-            padding: 10px;
-            border-radius: 10px;
-            background-color: #1e1e1e;
-            color: #f1f1f1;
-            font-size: 13px;
-            border: 1px solid #444;
-        }
-        .note-entry {
-            margin-bottom: 16px;
-        }
-        .note-entry hr {
-            border-color: #555;
-        }
-        .card {
-            background-color: #1e1e1e;
-            padding: 12px;
-            margin: 8px 0;
-            border-radius: 10px;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-            font-family: monospace;
-            font-size: 13px;
-        }
-        .section-title {
-            font-weight: bold;
-            color: #f1f1f1;
-            margin-bottom: 4px;
-        }
-    </style>
+<style>
+    body { background-color: #121212; color: #f1f1f1; }
+    textarea { background-color: #1e1e1e !important; color: #f1f1f1 !important;
+               font-family: 'Courier New', monospace; font-size: 14px; border-radius: 6px; }
+    .card { background-color: #1e1e1e; padding: 12px; margin: 8px 0; border-radius: 10px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3); font-family: monospace; font-size: 13px; }
+    .section-title { font-weight: bold; color: #f1f1f1; margin-bottom: 4px; }
+    .discharge-notes-box { padding: 10px; border-radius: 10px; background-color: #1e1e1e;
+                            color: #f1f1f1; font-size: 13px; border: 1px solid #444; }
+</style>
 """, unsafe_allow_html=True)
 
+# --- Model Setup ---
 BIOBERT_MODEL = "emilyalsentzer/Bio_ClinicalBERT"
-EMBED_DIM = 768
 MODEL_NAME = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 SCORE_THRESHOLD = 50
 MAX_CHUNKS = 15
-
 os.environ["TOGETHER_API_KEY"] = st.secrets["TOGETHER_API_KEY"]
 
 @st.cache_resource
 def load_biobert():
-    tokenizer = AutoTokenizer.from_pretrained(BIOBERT_MODEL)
-    model = AutoModel.from_pretrained(BIOBERT_MODEL)
-    return tokenizer, model
-
+    return (AutoTokenizer.from_pretrained(BIOBERT_MODEL),
+            AutoModel.from_pretrained(BIOBERT_MODEL))
 tokenizer_biobert, biobert = load_biobert()
 
 @st.cache_resource
 def get_bigquery_client():
-    credentials_info = st.secrets["BIGQUERY_CREDENTIALS"]
-    credentials = service_account.Credentials.from_service_account_info(credentials_info)
-    return bigquery.Client(credentials=credentials, project=credentials.project_id)
+    cred_info = st.secrets["BIGQUERY_CREDENTIALS"]
+    creds = service_account.Credentials.from_service_account_info(cred_info)
+    return bigquery.Client(credentials=creds, project=creds.project_id)
 
 @st.cache_data(ttl=3600)
-def query_discharge_notes(subject_id: int):
+def query_discharge_notes(subject_id: int) -> pd.DataFrame:
     client = get_bigquery_client()
-    query = f"""
-        SELECT subject_id, charttime, text
-        FROM `adelaide-api.clinical_RAG.discharge_notes_40_patients`
-        WHERE subject_id = {subject_id}
-        ORDER BY charttime DESC
+    sql = f"""
+      SELECT subject_id, charttime, text
+      FROM `adelaide-api.clinical_RAG.discharge_notes_40_patients`
+      WHERE subject_id = {subject_id}
+      ORDER BY charttime DESC
     """
-    return client.query(query).to_dataframe()
+    return client.query(sql).to_dataframe()
 
+# --- Utilities ---
 @st.cache_data
-def chunk_text(note: str, charttime, max_chars: int = 500) -> List[Tuple[str, str, str]]:
-    section_headers = ["Service:", "Allergies:", "Chief Complaint:", "Major Surgical or Invasive Procedure:",
-                       "History of Present Illness:", "Past Medical History:", "Social History:",
-                       "Family History:", "Physical Exam:", "PHYSICAL EXAM ON ADMISSION:",
-                       "PHYSICAL EXAM ON DISCHARGE:", "Pertinent Results:", "Brief Hospital Course:",
-                       "Medications on Admission:", "Discharge Medications:", "Discharge Disposition:",
-                       "Facility:", "Discharge Diagnosis:", "Discharge Condition:",
-                       "Discharge Instructions:", "Followup Instructions:"]
-    pattern = re.compile(rf"^({'|'.join(map(re.escape, section_headers))})", re.MULTILINE)
+def chunk_text(note: str, charttime, max_chars: int = 500) -> List[Tuple[str,str,str]]:
+    headers = ["Chief Complaint:", "History of Present Illness:", "Discharge Notes:"]
+    pattern = re.compile(rf"^({'|'.join(map(re.escape, headers))})", re.MULTILINE)
     matches = list(pattern.finditer(note))
     chunks = []
     for i in range(len(matches)):
-        start = matches[i].start()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(note)
-        header = matches[i].group(1)
-        content = note[start:end].strip()
-        sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.) (?=\w)', content)
-        current_chunk = ""
-        for sentence in sentences:
-            if len(current_chunk) + len(sentence) <= max_chars:
-                current_chunk += sentence
+        start = matches[i].end()
+        end = matches[i+1].start() if i+1 < len(matches) else len(note)
+        section = matches[i].group(1)
+        content = note[start:end].strip().replace("\n", " ")
+        # truncate at sentence boundaries
+        snippets = re.split(r'(?<=[.?!])\s+', content)
+        curr = ""
+        for sent in snippets:
+            if len(curr)+len(sent) <= max_chars:
+                curr += sent + ' '
             else:
-                chunks.append((header, current_chunk.strip(), charttime))
-                current_chunk = sentence
-        chunks.append((header, current_chunk.strip(), charttime))
+                chunks.append((section, curr.strip(), charttime))
+                curr = sent + ' '
+        if curr:
+            chunks.append((section, curr.strip(), charttime))
     return chunks
 
 @st.cache_data
 def get_embedding(text: str) -> np.ndarray:
-    inputs = tokenizer_biobert(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
-    with torch.no_grad():
-        outputs = biobert(**inputs)
-    attention_mask = inputs['attention_mask']
-    last_hidden = outputs.last_hidden_state
-    mask = attention_mask.unsqueeze(-1).expand(last_hidden.size()).float()
-    mean_pooled = (last_hidden * mask).sum(1) / mask.sum(1)
-    return mean_pooled.squeeze().cpu().numpy()
+    inp = tokenizer_biobert(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
+    with torch.no_grad(): out = biobert(**inp)
+    mask = inp['attention_mask'].unsqueeze(-1).expand(out.last_hidden_state.size()).float()
+    pooled = (out.last_hidden_state * mask).sum(1) / mask.sum(1)
+    return pooled.squeeze().cpu().numpy()
 
-def build_faiss_index(embeddings: List[np.ndarray]) -> faiss.IndexFlat:
-    dimension = embeddings[0].shape[0]
-    index = faiss.IndexFlat(dimension)
-    index.add(np.vstack(embeddings))
-    return index
+def build_faiss_index(embeds: List[np.ndarray]):
+    idx = faiss.IndexFlatL2(embeds[0].shape[0])
+    idx.add(np.vstack(embeds)); return idx
 
-def search_chunks_with_faiss(all_chunks, subject_id, query, top_k=30):
-    chunks = all_chunks.get(subject_id, [])
-    if not chunks:
-        return []
-    texts = [text for section, text, date in chunks]
-    embeddings = [get_embedding(t) for t in texts]
-    index = build_faiss_index(embeddings)
-    query_emb = get_embedding(query)
-    D, I = index.search(query_emb.reshape(1, -1), top_k)
-    results = []
-    for i, score in zip(I[0], D[0]):
-        if score <= SCORE_THRESHOLD:
-            section, text, date = chunks[i]
-            results.append((text, section, date, score))
-            if len(results) >= MAX_CHUNKS:
-                break
-    return results
+def search_chunks_with_faiss(all_chunks, sid, query):
+    chunks = all_chunks.get(sid, [])
+    if not chunks: return []
+    texts = [t for _, t, _ in chunks]
+    embeds = [get_embedding(t) for t in texts]
+    idx = build_faiss_index(embeds)
+    q_emb = get_embedding(query)
+    D, I = idx.search(q_emb.reshape(1,-1), MAX_CHUNKS)
+    out = []
+    for i, d in zip(I[0], D[0]):
+        if d <= SCORE_THRESHOLD:
+            sec, txt, dt = chunks[i]
+            out.append((sec, txt, dt, d))
+    return out
 
 client = Together(api_key=os.environ["TOGETHER_API_KEY"])
-
-def generate_response_from_chunks(query: str, retrieved_chunks: List[tuple]) -> str:
-    context = "\n".join([f"[{section} {date}] {text.strip()}" for text, section, date, score in retrieved_chunks])
+def generate_response(query, chunks):
+    if not chunks: return "No relevant information found."
+    ctx = "\n".join([f"[{sec} {dt}] {txt}" for sec, txt, dt, _ in chunks])
     prompt = f"""
     You are a clinical assistant reviewing the following clinical notes and answering specific medical questions.
 
     Patient Notes:
-    {context}
+    {ctx}
 
     Question:
     {query}
@@ -178,87 +130,60 @@ def generate_response_from_chunks(query: str, retrieved_chunks: List[tuple]) -> 
     - Keep the tone clinical and concise.
 
     Answer:"""
-    response = client.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.choices[0].message.content
+    return client.chat.completions.create(model=MODEL_NAME, messages=[{"role":"user","content":prompt}]).choices[0].message.content
 
-# --- UI Logic ---
+# --- UI ---
 st.title("🩺 Clinical Chatbot Assistant")
-subject_id = st.number_input("Patient Subject ID", value=10001338)
-df = query_discharge_notes(subject_id)
-df_sorted = df.sort_values("charttime", ascending=False).reset_index(drop=True)
+subject_id = st.number_input("Patient Subject ID", min_value=0, value=10001338)
 
-# All chunks processing
+# Query and process notes
+notes_df = query_discharge_notes(subject_id)
+notes_df['charttime'] = pd.to_datetime(notes_df['charttime'])
+
 if "all_chunks" not in st.session_state:
     all_chunks = {}
-    for _, row in df.iterrows():
-        sid = row['subject_id']
-        chunks = chunk_text(row['text'], row['charttime'])
-        if sid not in all_chunks:
-            all_chunks[sid] = []
-        all_chunks[sid].extend(chunks)
+    for _, r in notes_df.iterrows():
+        sid, txt, dt = r['subject_id'], r['text'], r['charttime']
+        c = chunk_text(txt, dt)
+        all_chunks.setdefault(sid, []).extend(c)
     st.session_state.all_chunks = all_chunks
 
-# Display snapshot
-st.markdown("## 🧠 Clinical Snapshot")
-left, right = st.columns(2)
+# Tabs for UX
+tab1, tab2 = st.tabs(["👤 Current Visit", "📚 Discharge Notes"])
 
-with left:
-    st.markdown("### 👤 Current Visit Overview")
-    st.markdown("""
-        <div style='display: flex; align-items: center; margin-bottom: 1rem;'>
-            <img src='https://cdn-icons-png.flaticon.com/512/2922/2922510.png' width='60' style='border-radius: 50%; margin-right: 10px;' />
-            <div style='background: #3a3a3a; color: white; padding: 10px 16px; border-radius: 16px; font-size: 14px; max-width: 320px; box-shadow: 0 0 6px rgba(0,0,0,0.2);'>
-                “I’m here because of these symptoms...”
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
+with tab1:
+    st.subheader("Current Visit Overview")
+    row = notes_df.iloc[0]
+    st.markdown(f'''**Date:** {row['charttime'].strftime('%b %d, %Y')}  
+**Chief Complaint:** {next((t for s,t,d in chunk_text(row['text'], row['charttime']) if 'Chief Complaint' in s), 'N/A')}  ''')
+    hpi = next((t for s,t,d in chunk_text(row['text'], row['charttime']) if 'History of Present Illness' in s), '')
+    display = hpi[:300] + '...' if len(hpi)>300 else hpi
+    st.markdown(f"**HPI:** {display}")
 
-    latest_note = df_sorted.iloc[0]
-    recent_chunks = chunk_text(latest_note["text"], latest_note["charttime"])
-    for section, text, date in recent_chunks:
-        if "Chief Complaint" in section or "History of Present Illness" in section:
-            display_text = text.strip()
-            if len(display_text) > 300:
-                display_text = display_text[:300] + "..."
-            st.markdown(f"""
-                <div class='card'>
-                    <div class='section-title'>{section.strip(':')}</div>
-                    <div>{display_text}</div>
-                </div>
-            """, unsafe_allow_html=True)
+def format_note_as_sections(note):
+    icons = {'Chief Complaint:':'🩺','History of Present Illness:':'📜'}
+    parts=[]
+    for sec, txt, _ in chunk_text(note['text'], note['charttime']):
+        if sec in icons:
+            parts.append(f"{icons[sec]} **{sec}** \n {txt}")
+    return "\n\n".join(parts)
 
-with right:
-    st.markdown("### 📚 Past Discharge Notes")
-    with st.expander("Show Past Notes"):
-        for i in range(1, min(3, len(df_sorted))):
-            note = df_sorted.iloc[i]
-            date = pd.to_datetime(note['charttime']).strftime("%b %d, %Y")
-            st.markdown(f"#### 📅 {date}")
-            sections_html = format_note_as_sections(note["text"][:2000])
-            components.html(sections_html, height=300, scrolling=True)
+with tab2:
+    st.subheader("Past Discharge Notes")
+    for note in notes_df.iloc[1:4].itertuples():
+        date = note.charttime.strftime('%b %d, %Y')
+        with st.expander(f"📅 {date}", expanded=False):
+            st.markdown(format_note_as_sections(note._asdict()))
 
-# Chat and Query
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-query = st.chat_input("Enter your clinical question...")
+# Chat interface
+if 'messages' not in st.session_state: st.session_state.messages=[]
+for m in st.session_state.messages:
+    with st.chat_message(m['role']): st.markdown(m['content'])
+query = st.chat_input("Ask a clinical question...")
 if query:
-    st.session_state.messages.append({"role": "user", "content": query})
-    with st.chat_message("user"):
-        st.markdown(query)
-    with st.spinner("Generating response..."):
-        chunks = search_chunks_with_faiss(st.session_state.all_chunks, subject_id, query)
-        if not chunks:
-            answer = "No relevant information found."
-        else:
-            answer = generate_response_from_chunks(query, chunks)
-    st.session_state.messages.append({"role": "assistant", "content": answer})
-    with st.chat_message("assistant"):
-        st.markdown(answer)
+    st.session_state.messages.append({'role':'user','content':query})
+    with st.chat_message('user'): st.markdown(query)
+    with st.spinner('Generating answer...'):
+        resp = generate_response(query, search_chunks_with_faiss(st.session_state.all_chunks, subject_id, query))
+    st.session_state.messages.append({'role':'assistant','content':resp})
+    with st.chat_message('assistant'): st.markdown(resp)
