@@ -120,20 +120,7 @@ def chunk_text(note: str, charttime, max_chars: int = 500) -> List[Tuple[str, st
                 current_chunk = sentence
     chunks.append((header, current_chunk.strip(), charttime))
     return chunks
-def get_chief_complaint_and_hpi(chunks):
-    chief_complaint = None
-    hpi = None
 
-    for section, text, date in chunks:
-        section_clean = section.lower().strip().rstrip(":")
-        if "chief complaint" in section_clean and not chief_complaint:
-            chief_complaint = f"🩺 **Chief Complaint** ({date}):\n{text.strip()}"
-        elif "history of present illness" in section_clean and not hpi:
-            hpi = f"📜 **History of Present Illness** ({date}):\n{text.strip()}"
-        if chief_complaint and hpi:
-            break
-
-    return "\n\n".join(filter(None, [chief_complaint, hpi])) or "Chief Complaint and HPI not found."
 @st.cache_data
 def get_embedding(text: str) -> np.ndarray:
     inputs = tokenizer_biobert(text, return_tensors="pt", truncation=True, padding=True)
@@ -210,7 +197,12 @@ def format_note_as_sections(note_text: str) -> str:
         start = matches[i].end()
         end = matches[i+1].start() if i+1 < len(matches) else len(note_text)
         body = note_text[start:end].strip().replace("\n", "<br>")
-        formatted += f"<details><summary><strong>{title}</strong></summary><p style='margin-top: 4px;'>{body}</p></details><br>"
+        formatted += f"""
+        <details style='color: #f1f1f1;'>
+            <summary style='color: #f1f1f1;'><strong>{title}</strong></summary>
+            <p style='color: #f1f1f1; margin-top: 4px;'>{body}</p>
+        </details><br>
+        """
 
     return formatted
 # steamlit app layout 
@@ -227,7 +219,24 @@ most_recent_note = df_sorted.iloc[0]
 recent_chunks = chunk_text(most_recent_note["text"], most_recent_note["charttime"])
 
 
-chief_complaint = get_chief_complaint_and_hpi(recent_chunks)
+def extract_recent_chief_complaint_and_hpi(note_text: str) -> str:
+    section_titles = [
+        "Chief Complaint:", "History of Present Illness:"
+    ]
+    pattern = re.compile(rf"({'|'.join(map(re.escape, section_titles))})", re.MULTILINE)
+    matches = list(pattern.finditer(note_text))
+
+    sections = ""
+    for i in range(len(matches)):
+        title = matches[i].group(1)
+        start = matches[i].end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(note_text)
+        body = note_text[start:end].strip().replace("\n", "<br>")
+        sections += f"<details open><summary><strong>{title}</strong></summary><p style='margin-top: 4px;'>{body}</p></details><br>"
+
+    return sections or "Chief Complaint and HPI not found."
+
+chief_complaint_html = extract_recent_chief_complaint_and_hpi(most_recent_note["text"])
 
 # Prepare HTML for older notes (excluding the most recent one)
 previous_notes_html = "<div class='discharge-notes-box'>"
@@ -260,7 +269,7 @@ with left:
         </div>
     """, unsafe_allow_html=True)
 
-    st.text_area("Chief Complaint & HPI", value=chief_complaint, height=300, disabled=True)
+    components.html(chief_complaint_html, height=300, scrolling=True)
 
 with right:
     st.markdown("### 📚 Past Discharge Notes")
