@@ -20,7 +20,7 @@ st.markdown("""
     <style>
         textarea {
             background-color: #1e1e1e !important;
-            color: #e0e0e0 !important;
+            color: #f1f1f1 !important;
             font-family: 'Courier New', monospace;
             font-size: 14px;
             border-radius: 6px;
@@ -30,12 +30,12 @@ st.markdown("""
             height: 320px;
             overflow-y: auto;
             padding: 16px;
-            border-radius: 8px;
-            background-color: #1e1e1e;
-            color: #f8f8f2;
+            border-radius: 10px;
+            background-color: #282828;
+            color: #f1f1f1;
             font-family: 'Courier New', monospace;
-            font-size: 13px;
-            border: 1px solid #444;
+            font-size: 14px;
+            border: 1px solid #666;
         }
 
         .note-entry {
@@ -43,7 +43,17 @@ st.markdown("""
         }
 
         .note-entry hr {
-            border-color: #555;
+            border-color: #666;
+        }
+
+        summary {
+            cursor: pointer;
+            font-size: 15px;
+            padding: 4px 0;
+        }
+
+        details[open] summary {
+            font-weight: bold;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -115,19 +125,15 @@ def get_chief_complaint_and_hpi(chunks):
     hpi = None
 
     for section, text, date in chunks:
-        if "Chief Complaint" in section and not chief_complaint:
-            chief_complaint = f"[{section} {date}]\n{text.strip()}"
-        elif "History of Present Illness" in section and not hpi:
-            hpi = f"[{section} {date}]\n{text.strip()}"
+        section_clean = section.lower().strip().rstrip(":")
+        if "chief complaint" in section_clean and not chief_complaint:
+            chief_complaint = f"🩺 **Chief Complaint** ({date}):\n{text.strip()}"
+        elif "history of present illness" in section_clean and not hpi:
+            hpi = f"📜 **History of Present Illness** ({date}):\n{text.strip()}"
         if chief_complaint and hpi:
             break
 
-    parts = []
-    if chief_complaint:
-        parts.append(chief_complaint)
-    if hpi:
-        parts.append(hpi)
-    return "\n\n".join(parts) if parts else "Chief Complaint and HPI not found."
+    return "\n\n".join(filter(None, [chief_complaint, hpi])) or "Chief Complaint and HPI not found."
 @st.cache_data
 def get_embedding(text: str) -> np.ndarray:
     inputs = tokenizer_biobert(text, return_tensors="pt", truncation=True, padding=True)
@@ -243,12 +249,22 @@ st.markdown("## 🧠 Clinical Snapshot")
 left, right = st.columns(2)
 
 with left:
-    st.markdown("### 🔹 Chief Complaint (Most Recent Note)")
-    st.text_area("Chief Complaint", value=chief_complaint, height=300, disabled=True)
+    st.markdown("### 👤 Current Visit Overview")
+
+    st.markdown("""
+        <div style='display: flex; align-items: center; margin-bottom: 1rem;'>
+            <img src='https://cdn-icons-png.flaticon.com/512/2922/2922510.png' width='60' style='border-radius: 50%; margin-right: 10px;'/>
+            <div style='background: #444; color: white; padding: 10px 14px; border-radius: 16px; font-size: 14px; max-width: 320px;'>
+                “I’m here because of these symptoms...”
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.text_area("Chief Complaint & HPI", value=chief_complaint, height=300, disabled=True)
 
 with right:
-    st.markdown("### 📚 Previous Discharge Notes")
-    components.html(previous_notes_html, height=320, scrolling=True)
+    st.markdown("### 📚 Past Discharge Notes")
+    components.html(previous_notes_html, height=340, scrolling=True)
 
 
 if "messages" not in st.session_state:
