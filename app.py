@@ -157,23 +157,42 @@ with tab1:
     st.markdown(f'''**Date:** {row['charttime'].strftime('%b %d, %Y')}  
 **Chief Complaint:** {next((t for s,t,d in chunk_text(row['text'], row['charttime']) if 'Chief Complaint' in s), 'N/A')}  ''')
     hpi = next((t for s,t,d in chunk_text(row['text'], row['charttime']) if 'History of Present Illness' in s), '')
-    display = hpi[:300] + '...' if len(hpi)>300 else hpi
+    display = hpi[:500] + '...' if len(hpi)>500 else hpi
     st.markdown(f"**HPI:** {display}")
 
-def format_note_as_sections(note):
-    icons = {'Chief Complaint:':'🩺','History of Present Illness:':'📜'}
-    parts=[]
-    for sec, txt, _ in chunk_text(note['text'], note['charttime']):
+def format_note_as_sections(note: dict) -> str:
+    icons = {
+        "Chief Complaint:": "🩺",
+        "History of Present Illness:": "📜"
+    }
+    # Get all chunks for this note
+    chunks = chunk_text(note["text"], note["charttime"])
+    # Group text by section
+    section_map: dict[str, list[str]] = {}
+    for sec, txt, _ in chunks:
         if sec in icons:
-            parts.append(f"{icons[sec]} **{sec}** \n {txt}")
+            section_map.setdefault(sec, []).append(txt.strip())
+
+    parts = []
+    # Preserve the icon order
+    for sec, icon in icons.items():
+        texts = section_map.get(sec)
+        if not texts:
+            continue
+        # Join all chunks of that section
+        full_text = " ".join(texts)
+        parts.append(f"""{icon} **{sec}**
+
+{full_text}""")
+
     return "\n\n".join(parts)
 
 with tab2:
     st.subheader("Past Discharge Notes")
     for note in notes_df.iloc[1:4].itertuples():
-        date = note.charttime.strftime('%b %d, %Y')
+        date = note.charttime.strftime("%b %d, %Y")
         with st.expander(f"📅 {date}", expanded=False):
-            st.markdown(format_note_as_sections(note._asdict()))
+            st.markdown(format_note_as_sections(note._asdict()), unsafe_allow_html=True)
 
 # Chat interface
 if 'messages' not in st.session_state: st.session_state.messages=[]
