@@ -12,6 +12,7 @@ from transformers import AutoTokenizer, AutoModel
 from together import Together
 from google.cloud import bigquery
 from google.oauth2 import service_account
+import streamlit.components.v1 as components
 # Configs 
 st.set_page_config(page_title="Clinical Chatbot", layout="centered")
 BIOBERT_MODEL = "emilyalsentzer/Bio_ClinicalBERT"
@@ -77,6 +78,24 @@ def chunk_text(note: str, charttime, max_chars: int = 500) -> List[Tuple[str, st
                 current_chunk = sentence
     chunks.append((header, current_chunk.strip(), charttime))
     return chunks
+def get_chief_complaint_and_hpi(chunks):
+    chief_complaint = None
+    hpi = None
+
+    for section, text, date in chunks:
+        if "Chief Complaint" in section and not chief_complaint:
+            chief_complaint = f"[{section} {date}]\n{text.strip()}"
+        elif "History of Present Illness" in section and not hpi:
+            hpi = f"[{section} {date}]\n{text.strip()}"
+        if chief_complaint and hpi:
+            break
+
+    parts = []
+    if chief_complaint:
+        parts.append(chief_complaint)
+    if hpi:
+        parts.append(hpi)
+    return "\n\n".join(parts) if parts else "Chief Complaint and HPI not found."
 @st.cache_data
 def get_embedding(text: str) -> np.ndarray:
     inputs = tokenizer_biobert(text, return_tensors="pt", truncation=True, padding=True)
@@ -136,8 +155,47 @@ Answer:"""
 
 # steamlit app layout 
 st.title("🩺 Clinical Chatbot Assistant")
+
 subject_id_to_search = st.number_input("Patient Subject ID", value=10001217)
 df = query_discharge_notes(subject_id_to_search)
+
+# Sort discharge notes by charttime descending
+df_sorted = df.sort_values("charttime", ascending=False).reset_index(drop=True)
+
+# Extract chunks from most recent note
+most_recent_note = df_sorted.iloc[0]
+recent_chunks = chunk_text(most_recent_note["text"], most_recent_note["charttime"])
+
+# Get Chief Complaint from most recent note
+def extract_chief_complaint(chunks):
+    for section, text, date in chunks:
+        if "Chief Complaint" in section:
+            return f"[{section} {date}]\n{text.strip()}"
+    return "Chief Complaint not found."
+
+chief_complaint = extract_chief_complaint(recent_chunks)
+
+# Prepare HTML for older notes (excluding the most recent one)
+previous_notes_html = "<div style='height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 12px;'>"
+for i in range(1, len(df_sorted)):
+    note = df_sorted.iloc[i]
+    charttime = note["charttime"]
+    text = note["text"][:1200].replace("\n", "<br>")
+    previous_notes_html += f"<div style='margin-bottom: 12px;'><strong>{charttime}</strong><br>{text}...</div><hr>"
+previous_notes_html += "</div>"
+
+st.markdown("## 🧠 Clinical Snapshot")
+
+left, right = st.columns(2)
+
+with left:
+    st.markdown("### 🔹 Chief Complaint (Most Recent Note)")
+    st.text_area("Chief Complaint", value=chief_complaint, height=300, disabled=True)
+
+with right:
+    st.markdown("### 📚 Previous Discharge Notes")
+    components.html(previous_notes_html, height=320, scrolling=True)
+
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
