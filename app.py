@@ -290,7 +290,7 @@ def extract_recent_chief_complaint_and_hpi(note_text: str) -> str:
         """
 
     return sections or "<span style='color: #f1f1f1;'>Chief Complaint and HPI not found.</span>"
-
+chief_complaint_html = extract_recent_chief_complaint_and_hpi(most_recent_note["text"])
 # Prepare HTML for older notes (excluding the most recent one)
 previous_notes_html = "<div class='discharge-notes-box'>"
 for i in range(1, len(df_sorted)):
@@ -305,8 +305,8 @@ for i in range(1, len(df_sorted)):
         <div style='background: linear-gradient(145deg, #2e2e2e, #1c1c1c); color: #f1f1f1; padding: 6px 12px; 
      border-radius: 6px; font-size: 13px; display: inline-block; margin-bottom: 6px;
      box-shadow: inset 1px 1px 2px #333, inset -1px -1px 2px #111;'>
-        📅 {date_str}
-        </div>
+    📅 {date_str}
+    </div>
         <div>{text}</div>
         <hr>
     </div>
