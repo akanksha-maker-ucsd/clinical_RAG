@@ -80,7 +80,7 @@ st.markdown("""
         }
     </style>
 """, unsafe_allow_html=True)
-BIOBERT_MODEL = "emilyalsentzer/Bio_ClinicalBERT"
+BIOBERT_MODEL = "dmis-lab/biobert-base-cased-v1.1"
 EMBED_DIM = 768
 MODEL_NAME = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 SCORE_THRESHOLD = 50
@@ -90,10 +90,15 @@ file_id = '1JJBW3fE8GZLVZQgPt1CS7HSYWeB2uqE8-p9xtIReIxU'
 os.environ["TOGETHER_API_KEY"] = st.secrets["TOGETHER_API_KEY"]
 # Load models with cache
 @st.cache_resource
+@st.cache_resource
 def load_biobert():
-    tokenizer = AutoTokenizer.from_pretrained(BIOBERT_MODEL)
-    model = AutoModel.from_pretrained(BIOBERT_MODEL)
-    return tokenizer, model
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(BIOBERT_MODEL, use_auth_token=os.environ.get("HF_TOKEN"))
+        model = AutoModel.from_pretrained(BIOBERT_MODEL, use_auth_token=os.environ.get("HF_TOKEN"))
+        return tokenizer, model
+    except Exception as e:
+        st.error("Failed to load BioBERT model. Check HuggingFace rate limits or token.")
+        raise e
 
 tokenizer_biobert, biobert = load_biobert()
 
@@ -242,7 +247,7 @@ def format_note_as_sections(note_text: str) -> str:
 # steamlit app layout 
 st.title("🩺 Clinical Chatbot Assistant")
 
-subject_id_to_search = st.number_input("Patient Subject ID", value=10002430)
+subject_id_to_search = st.number_input("Patient Subject ID", value=10001338)
 df = query_discharge_notes(subject_id_to_search)
 
 # Sort discharge notes by charttime descending
@@ -351,7 +356,7 @@ if user_query:
             st.error("No relevant chunks found.")
             st.session_state.messages.append({"role": "assistant", "content": "No relevant chunks found."})
             with st.chat_message("assistant"):
-                st.markdown("No relevant chunks found.")
+                st.markdown("No relevant information found.")
             st.stop()
         response = generate_response_from_chunks(user_query, chunks)
     st.session_state.messages.append({"role": "assistant", "content": response})
