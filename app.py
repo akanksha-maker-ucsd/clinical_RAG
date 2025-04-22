@@ -13,8 +13,40 @@ from together import Together
 from google.cloud import bigquery
 from google.oauth2 import service_account
 import streamlit.components.v1 as components
+import markdown
 # Configs 
 st.set_page_config(page_title="Clinical Chatbot", layout="centered")
+st.markdown("""
+    <style>
+        textarea {
+            background-color: #1e1e1e !important;
+            color: #e0e0e0 !important;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            border-radius: 6px;
+        }
+
+        .discharge-notes-box {
+            height: 320px;
+            overflow-y: auto;
+            padding: 16px;
+            border-radius: 8px;
+            background-color: #1e1e1e;
+            color: #f8f8f2;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            border: 1px solid #444;
+        }
+
+        .note-entry {
+            margin-bottom: 20px;
+        }
+
+        .note-entry hr {
+            border-color: #555;
+        }
+    </style>
+""", unsafe_allow_html=True)
 BIOBERT_MODEL = "emilyalsentzer/Bio_ClinicalBERT"
 EMBED_DIM = 768
 MODEL_NAME = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
@@ -136,6 +168,7 @@ def generate_response_from_chunks(query: str, retrieved_chunks: List[tuple]) -> 
     context = "\n".join([f"[{section} {date}] {text.strip()}" for text, section, date, score in retrieved_chunks])
     prompt = f"""You are a clinical assistant helping summarize a patient's medical history for a physician during clinical assessment.
 
+
 Patient Timeline:
 {context}
 
@@ -153,10 +186,31 @@ Answer:"""
     )
     return response.choices[0].message.content
 
+
+
+def format_note_as_sections(note_text: str) -> str:
+    section_titles = [
+        "Chief Complaint:", "History of Present Illness:", "Major Surgical or Invasive Procedure:",
+        "Past Medical History:", "Physical Exam:", "Discharge Diagnosis:", "Discharge Medications:",
+        "Discharge Disposition:", "Discharge Instructions:", "Followup Instructions:"
+    ]
+    pattern = re.compile(rf"({'|'.join(map(re.escape, section_titles))})", re.MULTILINE)
+
+    matches = list(pattern.finditer(note_text))
+    formatted = ""
+
+    for i in range(len(matches)):
+        title = matches[i].group(1)
+        start = matches[i].end()
+        end = matches[i+1].start() if i+1 < len(matches) else len(note_text)
+        body = note_text[start:end].strip().replace("\n", "<br>")
+        formatted += f"<details><summary><strong>{title}</strong></summary><p style='margin-top: 4px;'>{body}</p></details><br>"
+
+    return formatted
 # steamlit app layout 
 st.title("🩺 Clinical Chatbot Assistant")
 
-subject_id_to_search = st.number_input("Patient Subject ID", value=10001217)
+subject_id_to_search = st.number_input("Patient Subject ID", value=10002430)
 df = query_discharge_notes(subject_id_to_search)
 
 # Sort discharge notes by charttime descending
@@ -166,22 +220,22 @@ df_sorted = df.sort_values("charttime", ascending=False).reset_index(drop=True)
 most_recent_note = df_sorted.iloc[0]
 recent_chunks = chunk_text(most_recent_note["text"], most_recent_note["charttime"])
 
-# Get Chief Complaint from most recent note
-def extract_chief_complaint(chunks):
-    for section, text, date in chunks:
-        if "Chief Complaint" in section:
-            return f"[{section} {date}]\n{text.strip()}"
-    return "Chief Complaint not found."
 
-chief_complaint = extract_chief_complaint(recent_chunks)
+chief_complaint = get_chief_complaint_and_hpi(recent_chunks)
 
 # Prepare HTML for older notes (excluding the most recent one)
-previous_notes_html = "<div style='height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 12px;'>"
+previous_notes_html = "<div class='discharge-notes-box'>"
 for i in range(1, len(df_sorted)):
     note = df_sorted.iloc[i]
     charttime = note["charttime"]
-    text = note["text"][:1200].replace("\n", "<br>")
-    previous_notes_html += f"<div style='margin-bottom: 12px;'><strong>{charttime}</strong><br>{text}...</div><hr>"
+    text = format_note_as_sections(note["text"][:2000])
+    previous_notes_html += f"""
+    <div class='note-entry'>
+        <strong>{charttime}</strong><br>
+        <div>{text}...</div>
+        <hr>
+    </div>
+    """
 previous_notes_html += "</div>"
 
 st.markdown("## 🧠 Clinical Snapshot")
