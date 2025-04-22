@@ -221,8 +221,8 @@ with left:
     for section, text, date in recent_chunks:
         if "Chief Complaint" in section or "History of Present Illness" in section:
             display_text = text.strip()
-            if len(display_text) > 50:
-                display_text = display_text[:50] + "..."
+            if len(display_text) > 300:
+                display_text = display_text[:300] + "..."
             st.markdown(f"""
                 <div class='card'>
                     <div class='section-title'>{section.strip(':')}</div>
