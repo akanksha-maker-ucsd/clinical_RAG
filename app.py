@@ -167,7 +167,7 @@ def search_chunks_with_faiss(all_chunks, subject_id, query, top_k=30):
         return []
     texts = [text for section, text, date in chunks]
     embeddings = [get_embedding(t) for t in texts]
-    print(embeddings[0])
+    print("DEBUGGGG: "+ embeddings[0])
     index = build_faiss_index(embeddings)
     query_emb = get_embedding(query)
     D, I = index.search(query_emb.reshape(1, -1), top_k)
@@ -326,7 +326,9 @@ if "all_chunks" not in st.session_state:
         if sid == subject_id_to_search:
             note, charttime = row['text'], row['charttime']
             chunks = chunk_text(note, charttime)
-            all_chunks[sid] = chunks
+            if sid not in all_chunks:
+                all_chunks[sid] = []
+            all_chunks[sid].extend(chunks)
     st.session_state.all_chunks = all_chunks
 
 for msg in st.session_state.messages:
