@@ -12,6 +12,7 @@ from google.cloud import bigquery
 from google.oauth2 import service_account
 import streamlit.components.v1 as components
 from datetime import datetime
+import random
 
 # --- Configs & Styling ---
 st.set_page_config(page_title="Clinical Chatbot", layout="centered")
@@ -271,8 +272,18 @@ with tab3:
 if 'messages' not in st.session_state: st.session_state.messages = []
 for m in st.session_state.messages:
     with st.chat_message(m['role']): st.markdown(m['content'])
+sample_questions = [
+    "What surgical procedure was performed?",
+    "What were the patient’s vital signs on admission?",
+    "How does today’s pain compare to the last visit?",
+    "What medications was the patient discharged on?",
+    "Are there any new diagnoses compared to prior notes?"
+]
+
+placeholder_text = random.choice(sample_questions)
+
 query = st.chat_input(
-    placeholder="Are there any new developments relevant to diagnoses compared to prior notes?",
+    placeholder=f"e.g. {placeholder_text}",
     key="llm_input"
 )
 # Add a subtle background highlight
