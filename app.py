@@ -122,21 +122,24 @@ def generate_response(query, chunks):
         return "No relevant information found."
     ctx = "\n".join([f"[{sec} {dt.strftime('%Y-%m-%d')}] {txt}" for sec, txt, dt, _ in chunks])
     prompt = f"""
-    You are a clinical assistant reviewing the following clinical notes and answering specific medical questions.
+    You are a clinical assistant. The physician’s chief complaint is: "{query}". 
+    Review these prior discharge notes (with dates) and answer in structured bullet lists under these headings:
 
-    Patient Notes:
+    Instructions: 
+        - If a detail was removed for privacy (e.g. names, dates, identifiers), say “Information not available (redacted).”
+        - Otherwise, follow the category structure…
+        1. Key Diagnoses  
+        2. Similarities to current complaint  
+        3. Differences from current complaint  
+        4. Vital Signs & Labs  
+        5. Medications  
+        6. Procedures & Surgeon  
+        7. Missing Information (“No relevant information found” if none)
+
+    Notes:
     {ctx}
 
-    Question:
-    {query}
-
-    Instructions:
-    - Provide a direct yes/no answer if possible.
-    - Cite specific dates and symptoms mentioned.
-    - If evidence is mixed or absent, explain briefly.
-    - Keep the tone clinical and concise.
-
-    Answer:"""
+    Answer concisely under each heading."""
     resp = client.chat.completions.create(model=MODEL_NAME, messages=[{"role":"user","content":prompt}])
     return resp.choices[0].message.content
 def format_note_as_sections(note_text: str) -> str:
@@ -189,14 +192,15 @@ if "all_chunks" not in st.session_state:
 tab1, tab2 = st.tabs(["👤 Current Visit", "📚 Discharge Notes"])
 
 with tab1:
-    st.subheader("Current Visit Overview")
+    st.subheader("Current Visit Snapshot")
     row = notes_df.iloc[0]
-    st.markdown(f"**Date:** {row['charttime'].strftime('%b %d, %Y')}  \
-**Chief Complaint:** {next((t for s,t,d in chunk_text(row['text'], row['charttime']) if 'Chief Complaint' in s), 'N/A')}  ")
-    st.markdown(f"**Procedure:** {next((t for s,t,d in chunk_text(row['text'], row['charttime']) if 'Major Surgical or Invasive Procedure' in s), 'None')}  ")
+    cc = next((t for s,t,d in chunk_text(row['text'], row['charttime']) if 'Chief Complaint' in s), 'N/A')
+    proc = next((t for s,t,d in chunk_text(row['text'], row['charttime']) if 'Major Surgical or Invasive Procedure' in s), 'None')
     hpi = next((t for s,t,d in chunk_text(row['text'], row['charttime']) if 'History of Present Illness' in s), '')
-    hpi_display = (hpi[:300] + '...') if len(hpi) > 300 else hpi
-    st.markdown(f"**HPI:** {hpi_display}")
+    st.markdown(f"- **Date:** {row['charttime'].strftime('%b %d, %Y')}")
+    st.markdown(f"- **Chief Complaint:** {cc}")
+    st.markdown(f"- **Procedure:** {proc}")
+    st.markdown(f"- **HPI (brief):** {hpi[:200]}…")
 
 with tab2:
     st.subheader("Past Discharge Notes")
@@ -212,6 +216,7 @@ if 'messages' not in st.session_state: st.session_state.messages = []
 for m in st.session_state.messages:
     with st.chat_message(m['role']): st.markdown(m['content'])
 query = st.chat_input("Ask a clinical question...")
+st.caption("Note: This data is de-identified. Questions asking for names or other PII will return “Information not available (redacted).”")
 if query:
     st.session_state.messages.append({'role':'user','content':query})
     with st.chat_message('user'): st.markdown(query)
