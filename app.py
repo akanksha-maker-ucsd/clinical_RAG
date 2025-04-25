@@ -179,7 +179,7 @@ def format_note_as_sections(note_text: str) -> str:
     return formatted
 
 PII_PATTERNS = [
-    r"\bwho is\b", r"\bwhat is the patient name\b", r"\bwho performed\b",
+    r"\bwho\b", r"\bwhat is the patient name\b",
     r"\bname\b", r"\bpatient id\b"
 ]
 
@@ -234,7 +234,10 @@ if query:
         if contains_pii_request(query):
             answer = "This question requests PII, which is not available in this demo."
         else:
-            chunks = search_chunks_with_faiss(...)
-            answer = generate_response(query, chunks)
+            chunks = search_chunks_with_faiss(st.session_state.all_chunks, subject_id, query)
+            if not chunks:
+                answer = "No relevant information found."
+            else:
+                answer = generate_response(query, chunks)
     st.session_state.messages.append({'role':'assistant','content':answer})
     with st.chat_message('assistant'): st.markdown(answer)
