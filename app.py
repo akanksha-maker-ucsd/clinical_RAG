@@ -122,11 +122,12 @@ def generate_response(query, chunks):
         return "No relevant information found."
     ctx = "\n".join([f"[{sec} {dt.strftime('%Y-%m-%d')}] {txt}" for sec, txt, dt, _ in chunks])
     prompt = f"""
-    You are a clinical assistant. The physician’s chief complaint is: "{query}". 
+    You are a clinical assistant. The physician's query is : "{query}". 
     Review these prior discharge notes (with dates) and answer in structured bullet lists under these headings:
 
     Instructions: 
-        - If a detail was removed for privacy (e.g. names, dates, identifiers), say “Information not available (redacted).”
+        You are a clinical assistant. If a question asks for any person's name or other protected detail,
+respond: “This question requests PII, which is not available in this demo.”
         - Otherwise, follow the category structure…
         1. Key Diagnoses  
         2. Similarities to current complaint  
@@ -176,6 +177,15 @@ def format_note_as_sections(note_text: str) -> str:
         """
 
     return formatted
+
+PII_PATTERNS = [
+    r"\bwho is\b", r"\bwhat is the patient name\b", r"\bwho performed\b",
+    r"\bname\b", r"\bpatient id\b"
+]
+
+def contains_pii_request(question: str) -> bool:
+    q = question.lower()
+    return any(re.search(pat, q) for pat in PII_PATTERNS)
 # --- UI ---
 st.title("🩺 Clinical Chatbot Assistant")
 subject_id = st.number_input("Patient Subject ID", min_value=0, value=10001338)
@@ -216,12 +226,15 @@ if 'messages' not in st.session_state: st.session_state.messages = []
 for m in st.session_state.messages:
     with st.chat_message(m['role']): st.markdown(m['content'])
 query = st.chat_input("Ask a clinical question...")
-st.caption("Note: This data is de-identified. Questions asking for names or other PII will return “Information not available (redacted).”")
+st.caption("Demo Restriction: This data is de-identified. Questions asking for names or other PII will return a placeholder response.”")
 if query:
     st.session_state.messages.append({'role':'user','content':query})
     with st.chat_message('user'): st.markdown(query)
     with st.spinner('Generating answer...'):
-        chunks = search_chunks_with_faiss(st.session_state.all_chunks, subject_id, query)
-        answer = generate_response(query, chunks)
+        if contains_pii_request(query):
+            answer = "This question requests PII, which is not available in this demo."
+        else:
+            chunks = search_chunks_with_faiss(...)
+            answer = generate_response(query, chunks)
     st.session_state.messages.append({'role':'assistant','content':answer})
     with st.chat_message('assistant'): st.markdown(answer)
