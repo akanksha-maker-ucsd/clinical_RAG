@@ -228,10 +228,10 @@ with tab1:
 
     **Sample Questions** (avoid PII-requests)  
     - What surgical procedure was performed?  
-    - What were the patient’s vital signs on admission?  
+    - What are some relevant labs/vital signs for this patient?  
     - How does today’s pain compare to the last visit?  
     - What medications was the patient discharged on?  
-    - Are there any new diagnoses compared to prior notes?  
+    - Are there any new developments relevant to diagnoses compared to prior notes?  
 
     **PII restriction**  
     This demo uses MIMIC-IV data, which is fully de-identified under the data use agreement.  
