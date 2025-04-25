@@ -271,7 +271,19 @@ with tab3:
 if 'messages' not in st.session_state: st.session_state.messages = []
 for m in st.session_state.messages:
     with st.chat_message(m['role']): st.markdown(m['content'])
-query = st.chat_input("Ask a clinical question...")
+query = st.chat_input(
+    placeholder="Are there any new developments relevant to diagnoses compared to prior notes?",
+    key="llm_input"
+)
+# Add a subtle background highlight
+st.markdown("""
+<style>
+div[data-testid="stChatInput"] {
+  border: 2px dashed #0099ff;
+  border-radius: 8px;
+}
+</style>
+""", unsafe_allow_html=True)
 st.caption("Demo Restriction: This data is de-identified. Questions asking for names or other PII will return a placeholder response.”")
 if query:
     st.session_state.messages.append({'role':'user','content':query})
