@@ -125,26 +125,24 @@ def generate_response(query, chunks, current_visit_summary = ""):
     full_context = f"Current Visit Context:\n{current_visit_summary}\n\nPrior Notes:\n{ctx}"
 
     prompt = f"""
-You are a clinical assistant. Use the Current Visit Context plus the prior discharge notes to answer following the instructions.
-{full_context}
+You are a clinical assistant. Use the Context below to answer the physician's question.
 
-    Instructions: 
-        If a question asks for any person's name or other protected detail,
-respond: “This question requests PII, which is not available in this demo.”
-        Answer concisely with a single sentence if possible. 
-        - Otherwise, follow the category structure, only include categories that are relevant to the question.
-        1. Key Diagnoses  
-        2. Similarities to current complaint  
-        3. Differences from current complaint  
-        4. Vital Signs & Labs  
-        5. Medications  
-        6. Procedures & Surgeon  
-        7. Missing Information (“No relevant information found” if none)
+=== Current Visit Context ===
+{current_visit_summary}
 
-    Notes:
-    {ctx}
+=== Prior Discharge Notes ===
+{ctx}
 
-    Answer concisely under each heading."""
+Query:
+{query}
+
+Instructions:
+1. If the question requests any person's name or other protected detail, reply:
+   “This question requests PII, which is not available in this demo.”
+2. Otherwise, organize your answer under the provided headings other relevant headings (e.g., Diagnoses, Similarities, Differences, Vital Signs).
+3. Use concise bullet points.
+4. Include dates for each finding when available; omit dates if none are present.
+"""
     resp = client.chat.completions.create(model=MODEL_NAME, messages=[{"role":"user","content":prompt}])
     return resp.choices[0].message.content
 def format_note_as_sections(note_text: str) -> str:
