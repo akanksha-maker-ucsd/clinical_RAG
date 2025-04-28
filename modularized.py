@@ -10,20 +10,42 @@ from together import Together
 #from langchain.text_splitter import RecursiveCharacterTextSplitter
 #from langchain_experimental.text_splitter import SemanticChunker
 
-# TODO: important  
+# TODO: important 
+#  
 # 1. Improve note preprocessing (ie remove whitespace, chunking etc.)
-# 2. Finalize chunk metadata / size  (ie maybe add a source (ie note id) so physicians can know which snippet came from where for explainabilty?)
+#
+# 2. Finalize chunk metadata / size 
+#    Current data not included: 
+#       - hadm_id   
+#       - storetime
+#       - note_type (model only has support for discharge notes -> need to update if note types expand + may be useful to include to give more context to generation model)
+#    Current metadata included: 
+#       - subject_id (patient-specific queries so not neccesary -> inherent in data structure after user selects pid)
+#       - note_id
+#       - note_seq 
+#       - charttime 
+#       - text 
+#
 # 3. Test generation in pipeline (confirm Together.ai is compliant)
-# 4. Create evaluation pipeline + report metrics  
+#
+# 4. Finalize pipelines (RAG + evaluation)   
+#
 # 5. Clean up modularization (update preprocessing, efficiency, structure, etc.) 
-# 6. Create agents (add query expansion, super agent) 
+#
+# 6. Create agents (add query expansion, super agent)
+#  
 # 7. Finalize agentic workflow
+# 
 # 8. Work on UI for each agent's output + human-in-the-loop 
 
 # TODO: future improvements  
-# 1. Add error handling for incorrrect usaga (ie invalid pids, etc) 
+#
+# 1. Add error handling for incorrrect usage (ie invalid pids, etc) 
+# 
 # 2. Add support for other document types (multi-modal data - ie other structured data or unstructured data - radiology note)
-# Radiology notes: df_test = pd.read_csv("mimic-iv-note-deidentified-free-text-clinical-notes-2.2/note/radiology.csv.gz", compression="gzip")
+#       - Radiology notes: df_test = pd.read_csv("mimic-iv-note-deidentified-free-text-clinical-notes-2.2/note/radiology.csv.gz", compression="gzip")
+#       - Other mimic data (may require integration of other metadata ie hadm_id to support cross-database data)
+#
 # 3. Add support to add new patient documents (to initial database, chunked database, vector store) -> not important now, but will be in real-world use cases where the EHR is not static 
 
 
@@ -93,9 +115,11 @@ class Data():
         for index, row in df.iterrows():
             example_note = row['text']
             charttime = row['charttime'] # get charttime for this row 
+            note_seq = row['note_seq']
+            note_id = row['note_id']
 
             # Apply the chunk_semantically function, pass charttime as argument 
-            chunks = self.chunk_text(example_note, charttime)
+            chunks = self.chunk_text(example_note, charttime, note_id, note_seq)
 
             # Update the all_chunks dictionary
             if pid in self.all_chunks:
@@ -107,8 +131,8 @@ class Data():
     # text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50) 
 
     # Chunk a single patient note 
-    # TODO -> does this clean the text (ie new lines, punctuation, etc.)
-    def chunk_text(self, input_text: str, charttime, max_chars: int = 500) -> List[Tuple[str, str]]:
+    # TODO -> improve chunking + cleaning the text (ie new lines, punctuation, etc.)
+    def chunk_text(self, input_text: str, charttime, note_id, note_seq, max_chars: int = 500) -> List[Tuple[str, str]]:
         """
         Chunks a clinical text into smaller pieces based on sections and a maximum
         character limit.
@@ -121,39 +145,54 @@ class Data():
             A list of (section, chunk text, date) tuples.
         """
         # TODO: figure out how to deal w/ notes that dont have content undersubheadings 
+
+        # List of relevant headings that may start a line in the discharge note 
         section_headers = [
-            "Service:", "Allergies:",
+            "Name:", "Admission Date:", "Date of Birth:",
+            "Service:", "Allergies:", "Attending:",
             "Chief Complaint:", "Major Surgical or Invasive Procedure:", "History of Present Illness:",
-            "Past Medical History:", "Social History:", "Family History:", "Physical Exam:",
+            "Past Medical History:", "Surgical History:", "Social History:", "Family History:", "Physical Exam:",
             "PHYSICAL EXAM ON ADMISSION:", "PHYSICAL EXAM ON DISCHARGE:", "Pertinent Results:",
             "Brief Hospital Course:", "Medications on Admission:", "Discharge Medications:",
             "Discharge Disposition:", "Facility:", "Discharge Diagnosis:", "Discharge Condition:",
             "Discharge Instructions:", "Followup Instructions:"
         ]
 
-        pattern = re.compile(rf"^({'|'.join(map(re.escape, section_headers))})", re.MULTILINE)
-        matches = list(pattern.finditer(input_text))
+        # Ignore headers with PHI removed  
+        # Also, some of these headers contained other headers further down the line, which is not handled by our current header matching logic 
+        remove_headers = ["Name", "Admission Date", "Date of Birth", "Attending", "Facility"]
+
+        # Clean text of spaces + newlines 
+        cleaned = re.sub(r'(\n\s*|\s*\n)', '\n', input_text) # remove spaces around newlines 
+        cleaned = re.sub(r'\s{2,}', ' ', cleaned)            # condense multiple spaces into one 
+        cleaned = cleaned.strip()                            # remove trailing newlines 
+
+        # Check start of lines for match to a heading 
+        pattern = re.compile(rf"^({'|'.join(map(re.escape, section_headers))})", re.MULTILINE)  
+        matches = list(pattern.finditer(cleaned))
 
         chunks = []
         for i in range(len(matches)):
-            start = matches[i].start()
-            end = matches[i + 1].start() if i + 1 < len(matches) else len(input_text)
-            header = matches[i].group(1)
-            content = input_text[start:end].strip()
-
-            sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', content)
+            start = matches[i].end()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(cleaned)
+            header = matches[i].group(1)[:-1]      
+            content = cleaned[start:end].strip()
             
-            current_chunk = ""
-            for sentence in sentences:
-                if len(current_chunk) + len(sentence) <= max_chars:
-                    current_chunk += sentence
-                else:
-                    chunks.append((header, current_chunk.strip(), charttime))
-                    if len(sentence) <= max_chars: 
-                        current_chunk = sentence                        
-                    else: 
-                        current_chunk = ""                                # Skip sentence if too long TODO improve handling of this edge case 
-        chunks.append((header[:-1], current_chunk.strip(), charttime))    # TODO: add note id metadata 
+            if header not in remove_headers:
+
+                sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', content)    # TODO: improve sentence splitting (semantic splitter?)
+            
+                current_chunk = ""
+                for sentence in sentences:
+                    if len(current_chunk) + len(sentence) <= max_chars:
+                        current_chunk += sentence
+                    else:
+                        chunks.append((header, current_chunk.strip(), charttime, note_id, note_seq))
+                        if len(sentence) <= max_chars: 
+                            current_chunk = sentence                        
+                        else: 
+                            current_chunk = ""                                                  # Skip sentence if too long TODO improve handling of this edge case 
+                chunks.append((header, current_chunk.strip(), charttime, note_id, note_seq))    # TODO: add other metadata, keep ordering cosistent across functions 
 
         return chunks
 
@@ -164,11 +203,11 @@ class Data():
         patient_chunks = self.all_chunks[pid]
         output = [f"================= Showing up to {max_chunks} chunks for Patient {pid} ============="]
 
-        for i, (section, chunk, date) in enumerate(patient_chunks): 
+        for i, (section, chunk, date, id, seq) in enumerate(patient_chunks): 
             if i >= max_chunks: 
                 output.append("\nChunk display limit reached")
                 break 
-            output.append(f"\nSection: {section} \nDate: {date} \n{chunk}")
+            output.append(f"\nNote ID: {id} \nNote Sequence: {seq} \nDate: {date} \nSection: {section} \n{chunk}")
             output.append("\n-----------------------------------------------------------------------")
         output.append("\n=======================================================================\n")
         return "\n".join(output) 
@@ -228,24 +267,23 @@ class Storage():
         """
         # Build index using only the chunk text part of the tuples
         chunks_with_metadata = self.data.all_chunks[pid] 
-        all_texts = [text for section, text, date in chunks_with_metadata] # TODO: i think it makes sense to embedd the metadata too? 
+        all_texts = [text for section, text, date, id, seq in chunks_with_metadata] # TODO: i think it makes sense to embedd the metadata too? 
         # Embed all chunks
         embeddings = [self.embedder.get_embedding(text) for text in all_texts]
         dimension = embeddings[0].shape[0]  # Get dimensionality from embeddings
 
         # Build FAISS index from embeddings 
         index = faiss.IndexFlat(dimension)  # Change to faiss.IndexFlat FlatL2?? # L2 distance for similarity TODO are other similarity metrics better? 
-        index.add(np.vstack(embeddings))  # Add embeddings to the index
-        self.pid_to_idx[pid] = index      # Add pid to index mapping 
+        index.add(np.vstack(embeddings))    # Add embeddings to the index
+        self.pid_to_idx[pid] = index        # Add pid to index mapping 
 
-    def search_index(self, pid, query, top_k=30): 
+    def search_index(self, pid, query, threshold, top_k=30): 
         """
         Searches FAISS and filters chunks by score and count.
         Assumes all_chunks[subject_id] = list of tuples (text, date).
         """
         # Constants - adjust based on empiral observation 
-        SCORE_THRESHOLD = 50 # Adjust based on empiral observation 
-        MAX_CHUNKS = 15 
+        #MAX_CHUNKS = 15 
 
         index = self.pid_to_idx[pid]          # Index w/ chunk text embeddings 
         chunks = self.data.all_chunks[pid]      # Raw chunk text w/ metadata 
@@ -258,12 +296,11 @@ class Storage():
         # Filter by score and cap to max chunks, include date
         results = []
         for i, score in zip(I[0], D[0]):
-            if score <= SCORE_THRESHOLD:
-                # Get section, text, and date from the original list using i
-                section, text, date = chunks[i]
-                results.append((text, section, date, score))
-                if len(results) >= MAX_CHUNKS:
-                    break
+            if score <= threshold: # tunable parameter - adjust based on empiricle observation 
+                # Get section, text, date, seq from the original list using i
+                section, text, date, id, seq = chunks[i]
+                results.append((text, section, date, id, seq, score))
+            #if len(results) >= MAX_CHUNKS:
         return results
     
     # Prints the results 
@@ -271,12 +308,91 @@ class Storage():
         i = 0
         print(f"======================== Retrieved Chunks for Patient {pid} ===========================")
         print("\nNumber of retrieved chunks:", len(retrieved))
-        for chunk_text, section, date, score in retrieved: 
-            print(f"\nChunk {i} \nScore: {score} \nDate: {date} \nSection: {section}")
+        for chunk_text, section, date, id, seq, score in retrieved: 
+            # Print chunk 
+            print(f"\nChunk {i+1} \nScore: {score} \nDate: {date} \nNote ID: {id} \nNote Sequence: {seq} \nSection: {section}")
             print(chunk_text)
-            print("\n-----------------------------------------------------------------------")
             i += 1
+            print("\n-----------------------------------------------------------------------")
         print("\n=======================================================================\n")
+
+    # Evaluate retrieved chunks using QA dataset TODO - make printing optional  
+    def evaluate_retrieved(self, pid, retrieved, answer_dict, correct_answer, threshold): 
+        answer_idx = {'A': 0, 'B': 1, 'C': 2, 'D': 3, 'E': 4}
+        correct = 0      # number of chunks that are above threshold and match the correct answer (ie highest sim score with answer)
+        relevant = 0     # number of chunks that are above the threshold for any one of the answers 
+        i = 0            # total number of chunks 
+
+        # Embed answer choices 
+        embds = []
+        for answer in answer_dict: 
+            embds.append(self.embedder.get_embedding(answer_dict[answer]))
+        
+        # TODO - avoid repeated work with prev function!!
+        #print(f"======================== Retrieved Chunks for Patient {pid} ===========================")
+        #print("\nNumber of retrieved chunks:", len(retrieved))
+        for chunk_text, section, date, id, seq, score in retrieved: 
+            # Print chunk 
+            #print(f"\nChunk {i+1} \nScore: {score} \nDate: {date} \nNote ID: {id} \nNote Sequence: {seq} \nSection: {section}\n")
+            #print(chunk_text)
+            i += 1 
+
+            # Calculate similarities of chunk for each answer 
+            chunk_emb = self.embedder.get_embedding(chunk_text) 
+            sims = []
+            for answer in answer_idx: 
+                idx = answer_idx[answer]
+                cos_sim = np.dot(embds[idx], chunk_emb) / (np.linalg.norm(embds[idx]) *  np.linalg.norm(chunk_emb)) 
+                #print(f"Cosine Similarity: {cos_sim} for {answer}")
+                sims.append(cos_sim)
+
+            # Calculate relevance of chunk 
+            max_sim = max(sims)
+            # relevant chunk 
+            if max_sim > threshold: 
+                relevant+=1 
+                # correct chunk 
+                if sims[answer_idx[correct_answer]] > threshold: 
+                    correct+=1 
+            #print("\n-----------------------------------------------------------------------")
+        #print("\n=======================================================================\n")
+        return relevant, correct, i 
+    
+    # TODO avoid repeated work ealier function - TODO make printing optional 
+    def evaluate_relevant(self, pid, answer_dict, correct_answer, threshold): 
+        answer_idx = {'A': 0, 'B': 1, 'C': 2, 'D': 3, 'E': 4}      
+        threshold = 0.80 # TODO: need to tune after doing some data exploration 
+        correct = 0      # number of chunks that are above threshold and match the correct answer (ie highest sim score with answer)
+        relevant = 0     # number of chunks that are above the threshold for any one of the answers 
+        total = 0        # total number of chunks 
+
+        # Embed answer choices 
+        embds = []
+        for answer in answer_dict: 
+            embds.append(self.embedder.get_embedding(answer_dict[answer])) 
+
+        for section, chunk_text, date, note_id, note_seq in self.data.all_chunks[pid]: 
+            total+=1 
+            # Calculate similarities of chunk for each answer 
+            chunk_emb = self.embedder.get_embedding(chunk_text) 
+            sims = []
+            for answer in answer_idx: 
+                idx = answer_idx[answer]
+                cos_sim = np.dot(embds[idx], chunk_emb) / (np.linalg.norm(embds[idx]) *  np.linalg.norm(chunk_emb)) 
+                #print(f"Cosine Similarity: {cos_sim} for {answer}")
+                sims.append(cos_sim)
+
+            # Calculate relevance of chunk 
+            max_sim = max(sims)
+            # relevant chunk 
+            if max_sim > threshold: 
+                relevant+=1 
+                # correct chunk 
+                if sims[answer_idx[correct_answer]] > threshold: 
+                    correct+=1  
+            #print("\n-----------------------------------------------------------------------")
+        #print("\n=======================================================================\n")
+        return relevant, correct, total 
 
 
 class Generation(): 
@@ -291,12 +407,12 @@ class Generation():
         Generates a clinically relevant, faithful, and date-aware summary using retrieved context.
         """
         # Format each chunk as a date-tagged clinical note
-        context = "\n".join([f"[{section} {date}] {text.strip()}" for text, section, date, score in retrieved_chunks])
+        context = "\n".join([f"[{note_id} {note_seq} {section} {date}] {text.strip()}" for text, section, date, note_id, note_seq, score in retrieved_chunks]) 
 
         # Optimized prompt
         prompt = f"""You are a clinical assistant helping summarize a patient's medical history for a physician during clinical assessment.
 
-        Patient Timeline (each entry includes a section, date, and note):
+        Patient Timeline (each entry includes the note id, note sequence number, chart date, section header, and the clinical note segment):
         {context}
 
         Query: "{query}"
